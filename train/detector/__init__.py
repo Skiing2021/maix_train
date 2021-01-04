@@ -36,7 +36,7 @@ from train_base import Train_Base
 class Detector(Train_Base):
     def __init__(self, input_shape=(224, 224, 3), datasets_dir=None, datasets_zip=None, unpack_dir=None, logger = None,
                 max_classes_limit = 15, one_class_min_images_num=100, one_class_max_images_num=2000,
-                allow_reshape=False,
+                allow_reshape=True, 
                 support_shapes=( (224, 224, 3), (240, 240, 3) )
                 ):
         '''
@@ -616,7 +616,7 @@ class Detector(Train_Base):
                 if not self.allow_reshape:
                     # not allow reshape, drop this image
                     continue
-                img, y_bboxes = self._reshape_image(img, self.input_shape, y_bboxes)
+                img, y_bboxes = self._reshape_bbox(img, self.input_shape, y_bboxes)
             datasets_x.append(img)
             datasets_y.append(y_bboxes)
         return True, "ok", labels, classes_data_counts, datasets_x, datasets_y
@@ -680,14 +680,16 @@ class Detector(Train_Base):
                     if not self._check_update_input_shape(img_shape) and not self.allow_reshape:
                         return False, "not supported input size, supported: {}".format(self.support_shapes), [], None, None, None
                     input_shape_checked = True
+
+                need_to_reshape = False
                 if img_shape != self.input_shape:
                     msg = f"decode xml {xml_path} ok, but shape {img_shape} not the same as expected: {self.input_shape}"
                     if not self.allow_reshape:
                         self.on_warning_message(msg)
                         continue
                     else:
-                        msg += ", will automatically reshape"
-                        self.on_warning_message(msg)
+                        need_to_reshape = True
+
                 # load image
                 dir_name = os.path.split(os.path.split(result['path'])[0])[-1] # class1 / images
                 # images/class1/tututututut.jpg
@@ -698,7 +700,11 @@ class Detector(Train_Base):
                     # images/tututututut.jpg
                     img_path = os.path.join(img_dir, result['filename'])
                     if os.path.exists(img_path):
-                        img = np.array(Image.open(img_path), dtype='uint8')
+                        if not need_to_reshape:
+                            img = np.array(Image.open(img_path), dtype='uint8')
+                        else:
+                            #Image.resize([width, height])
+                            img = np.array(Image.open(img_path).resize([self.input_shape[1], self.input_shape[0]], Image.NEAREST), dtype='uint8')
                     else:
                         result = f"decode xml {xml_path}, can not find iamge: {result['path']}"
                         self.on_warning_message(result)
@@ -719,8 +725,8 @@ class Detector(Train_Base):
                     result = f"decode xml {xml_path}, no object, skip"
                     self.on_warning_message(result)
                     continue
-                if img_shape != self.input_shape:
-                    img, y = self._reshape_image(img, self.input_shape, y)
+                if need_to_reshape:
+                    y = self._reshape_bbox(img_shape, self.input_shape, y)
                 datasets_x.append(img)
                 datasets_y.append(y)
         return True, "ok", labels, classes_data_counts, datasets_x, datasets_y
@@ -773,10 +779,16 @@ class Detector(Train_Base):
                 return False, "too many train images in one class, '{}' have {}, should < {}, now all datasets num({})".format(label, classes_dataset_count[i], one_class_max_images_num, sum(classes_dataset_count))
         return True, "ok"
 
-    def _reshape_image(self, img, to_shape, bboxes):
-        raise Exception("not implemented") # TODO: auto reshape images
+    def _reshape_bbox(self, origin_shape, to_shape, bboxes):
         new_bboxes = []
-        return img, new_bboxes
+        # print(origin_shape)
+        for bbox in bboxes:
+            new_bbox = [bbox[0] * to_shape[1] / origin_shape[1], bbox[1] * to_shape[0] / origin_shape[0],
+                        bbox[2] * to_shape[1] / origin_shape[1], bbox[3] * to_shape[0] / origin_shape[0],
+                        bbox[4]]
+            new_bboxes.append(new_bbox)
+        # print(new_bboxes)
+        return new_bboxes
 
 
 def train_on_progress(progress, msg):

@@ -263,7 +263,7 @@ class Train():
                                 max_classes_limit = config.detector_train_max_classes_num,
                                 one_class_min_images_num=config.detector_train_one_class_min_img_num,
                                 one_class_max_images_num=config.detector_train_one_class_max_img_num,
-                                allow_reshape = False)
+                                allow_reshape = True)
         except Exception as e:
             log.e("train datasets not valid: {}".format(e))
             raise Exception((TrainFailReason.ERROR_PARAM, "datasets not valid: {}".format(str(e))))
