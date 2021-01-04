@@ -64,21 +64,39 @@ class Detector(Train_Base):
             self.log = Fake_Logger()
         # unzip datasets
         if datasets_zip:
-            self.datasets_dir = self._unpack_datasets(datasets_zip, unpack_dir)
-            if not self.datasets_dir:
+            self.datasets_list = [self._unpack_datasets(datasets_zip, unpack_dir)]
+            if not self.datasets_list:
                 self.log.e("can't detect datasets, check zip format")
                 raise Exception("can't detect datasets, check zip format")
         elif datasets_dir:
-            self.datasets_dir = datasets_dir
+            if os.path.isdir(datasets_dir):
+                self.datasets_list = [datasets_dir]
+            else:
+                list_file = open(datasets_dir, "r")
+                self.datasets_list = list_file.readlines()
         else:
             self.log.e("no datasets args")
             raise Exception("no datasets args")
         # parse datasets
-        ok, msg, self.labels, classes_data_counts, datasets_x, datasets_y = self._load_datasets(self.datasets_dir)
-        if not ok:
-            msg = f"datasets format error: {msg}"
-            self.log.e(msg)
-            raise Exception(msg)
+        self.labels = []
+        classes_data_counts = []
+        datasets_x = []
+        datasets_y = []
+        for dir in self.datasets_list:
+            ok, msg, self.labels, _classes_data_counts, _datasets_x, _datasets_y = self._load_datasets(dir.replace("\r", "").replace("\n", ""))
+            if not ok:
+                msg = f"datasets format error: {msg}"
+                self.log.e(msg)
+                raise Exception(msg)
+            if (len(classes_data_counts) == 0):
+                classes_data_counts = _classes_data_counts
+            else:
+                for i in range(0, len(_classes_data_counts)):
+                    classes_data_counts[i] += _classes_data_counts[i]
+
+            datasets_x.extend(_datasets_x)
+            datasets_y.extend(_datasets_y)
+
         # check datasets
         ok, err_msg = self._is_datasets_valid(self.labels, classes_data_counts, one_class_min_images_num=self.config_one_class_min_images_num, one_class_max_images_num=self.config_one_class_max_images_num)
         if not ok:
@@ -116,8 +134,8 @@ class Detector(Train_Base):
     def __del__(self):
         if self.need_rm_datasets:
             try:
-                shutil.rmtree(self.datasets_dir)
-                self.log.i(f"clean temp dataset dir:{self.datasets_dir}")
+                shutil.rmtree(self.datasets_list)
+                self.log.i(f"clean temp dataset dir:{self.datasets_list}")
             except Exception as e:
                 try:
                     self.log.e("clean temp files error:{}".format(e))
@@ -169,7 +187,7 @@ class Detector(Train_Base):
         from yolo.frontend import create_yolo
 
         self.log.i("train, labels:{}".format(self.labels))
-        self.log.d("train, datasets dir:{}".format(self.datasets_dir))
+        self.log.d("train, datasets dir:{}".format(self.datasets_list))
 
         # param check
         # TODO: check more param
@@ -365,7 +383,7 @@ class Detector(Train_Base):
         from tensorflow.keras.preprocessing.image import ImageDataGenerator
         from tensorflow.keras.applications.mobilenet import preprocess_input
         valid_gen = ImageDataGenerator(preprocessing_function=preprocess_input)
-        valid_data = valid_gen.flow_from_directory(self.datasets_dir,
+        valid_data = valid_gen.flow_from_directory(self.datasets_list,
                 target_size=[self.input_shape[0], self.input_shape[1]],
                 color_mode='rgb',
                 batch_size=batch_size,

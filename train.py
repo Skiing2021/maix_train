@@ -14,7 +14,7 @@ def main():
 ''')
     parser.add_argument("-t", "--type", type=str, help="train type, classifier or detector", choices=supported_types, default="classifier")
     parser.add_argument("-z", "--zip", type=str, help="datasets zip file path", default="")
-    parser.add_argument("-d", "--datasets", type=str, help="datasets directory", default="")
+    parser.add_argument("-d", "--datasets", type=str, help="datasets directory or config file", default="")
     parser.add_argument("-c", "--config", type=str, help="config file", default=os.path.join(curr_dir, "instance", "config.py"))
     parser.add_argument("-o", "--out", type=str, help="out directory", default=os.path.join(curr_dir, "out"))
     parser.add_argument("cmd", help="command", choices=["train", "init"])
