@@ -29,6 +29,7 @@ import itertools
 import random
 import re
 import kmeans
+import json
 
 from train_base import Train_Base
 
@@ -72,12 +73,15 @@ class Detector(Train_Base):
             if os.path.isdir(datasets_dir):
                 self.datasets_list = [datasets_dir]
             else:
-                list_file = open(datasets_dir, "r")
-                self.datasets_list = list_file.readlines()
+                with open(datasets_dir, "r") as f:
+                    data = json.load(f)
+                self.datasets_list = data["train"]
+                self.datasets_val_list = data["val"]
         else:
             self.log.e("no datasets args")
             raise Exception("no datasets args")
-        # parse datasets
+        # parse train datasets
+        print("Scanning train datasets")
         self.labels = []
         classes_data_counts = []
         datasets_x = []
@@ -97,14 +101,42 @@ class Detector(Train_Base):
             datasets_x.extend(_datasets_x)
             datasets_y.extend(_datasets_y)
 
-        # check datasets
+        # check train datasets
+        if not (self.datasets_val_list):
+            return
+
         ok, err_msg = self._is_datasets_valid(self.labels, classes_data_counts, one_class_min_images_num=self.config_one_class_min_images_num, one_class_max_images_num=self.config_one_class_max_images_num)
         if not ok:
             self.log.e(err_msg)
             raise Exception(err_msg)
-        self.log.i("load datasets complete, check pass, images num:{}, bboxes num:{}".format(len(datasets_x), sum(classes_data_counts)))
-        self.datasets_x = np.array(datasets_x, dtype='uint8')
-        self.datasets_y = datasets_y
+        self.log.i("load train datasets complete, check pass, images num:{}, bboxes num:{}".format(len(datasets_x), sum(classes_data_counts)))
+        self.datasets_img = np.array(datasets_x, dtype='uint8')
+        self.datasets_ann = datasets_y
+
+        # parse val datasets
+        print("Scanning val datasets")
+        datasets_x = []
+        datasets_y = []
+        classes_data_counts = []
+        for dir in self.datasets_val_list:
+            ok, msg, self.labels, _classes_data_counts, _datasets_x, _datasets_y = self._load_datasets(dir.replace("\r", "").replace("\n", ""))
+            if not ok:
+                msg = f"datasets format error: {msg}"
+                self.log.e(msg)
+                raise Exception(msg)
+
+            if (len(classes_data_counts) == 0):
+                classes_data_counts = _classes_data_counts
+            else:
+                for i in range(0, len(_classes_data_counts)):
+                    classes_data_counts[i] += _classes_data_counts[i]
+
+            datasets_x.extend(_datasets_x)
+            datasets_y.extend(_datasets_y)
+
+        self.log.i("load val datasets complete, check pass, images num:{}, bboxes num:{}".format(len(datasets_x), sum(classes_data_counts)))
+        self.datasets_val_img = np.array(datasets_x, dtype='uint8')
+        self.datasets_val_ann = datasets_y
 
         class _Train_progress_cb(tf.keras.callbacks.Callback):#剩余训练时间回调
             def __init__(self, epochs, user_progress_callback, logger):
@@ -199,7 +231,7 @@ class Detector(Train_Base):
         # create yolo model
         strip_size = 32 if min(self.input_shape[:2])%32 == 0 else 16
         # get anchors
-        self.anchors = self._get_anchors(self.datasets_y, self.input_shape[:2], strip_size = strip_size)
+        self.anchors = self._get_anchors(self.datasets_ann, self.input_shape[:2], strip_size = strip_size)
         # create network
         yolo = create_yolo(
                             architecture = "MobileNet",
@@ -218,8 +250,8 @@ class Detector(Train_Base):
         self.history = yolo.train(
                                 img_folder = None,
                                 ann_folder = None,
-                                img_in_mem = self.datasets_x,       # datasets in mem, format: list
-                                ann_in_mem = self.datasets_y,       # datasets's annotation in mem, format: list
+                                img_in_mem = self.datasets_img,       # datasets in mem, format: list
+                                ann_in_mem = self.datasets_ann,       # datasets's annotation in mem, format: list
                                 nb_epoch   = epochs,
                                 save_best_weights_path = save_best_weights_path,
                                 save_final_weights_path = save_final_weights_path,
@@ -230,8 +262,8 @@ class Detector(Train_Base):
                                 valid_times=valid_times,
                                 valid_img_folder="",
                                 valid_ann_folder="",
-                                valid_img_in_mem = None,
-                                valid_ann_in_mem = None,
+                                valid_img_in_mem = self.datasets_val_img,
+                                valid_ann_in_mem = self.datasets_val_ann,
                                 first_trainable_layer=None,
                                 is_only_detect = is_only_detect,
                                 progress_callbacks = [self.Train_progress_cb(epochs, progress_cb, self.log)]
@@ -361,11 +393,11 @@ class Detector(Train_Base):
 
     def get_sample_images(self, sample_num, copy_to_dir):
         from PIL import Image
-        if self.datasets_x is None:
+        if self.datasets_img is None:
             raise Exception("datasets dir not exists")
-        indxes = np.random.choice(range(self.datasets_x.shape[0]), sample_num, replace=False)
+        indxes = np.random.choice(range(self.datasets_img.shape[0]), sample_num, replace=False)
         for i in indxes:
-            img = self.datasets_x[i]
+            img = self.datasets_img[i]
             path = os.path.join(copy_to_dir, f"image_{i}.jpg")
             img = Image.fromarray(img)
             img.save(path)
@@ -654,7 +686,7 @@ class Detector(Train_Base):
         # get xml path
         xmls = []
         for name in os.listdir(ann_dir):
-            print("--", name)
+            # print("--", name)
             if name.endswith(".xml"):
                 xmls.append(os.path.join(ann_dir, name))
                 continue
@@ -693,9 +725,23 @@ class Detector(Train_Base):
                 # load image
                 dir_name = os.path.split(os.path.split(result['path'])[0])[-1] # class1 / images
                 # images/class1/tututututut.jpg
-                img_path = os.path.join(img_dir, dir_name, result['filename'])
-                if os.path.exists(img_path):
-                    img = np.array(Image.open(img_path), dtype='uint8')
+                _, name = os.path.split(xml_path)
+                name, ext = os.path.splitext(name)
+                img_path = os.path.join(img_dir, name)
+                found = False
+                if os.path.exists(img_path + ".jpg"):
+                    img_path = img_path + ".jpg"
+                    found = True
+                elif os.path.exists(img_path + ".png"):
+                    img_path = img_path + ".png"
+                    found = True
+
+                if found:
+                    if not need_to_reshape:
+                        img = np.array(Image.open(img_path), dtype='uint8')
+                    else:
+                        img = np.array(
+                            Image.open(img_path).resize([self.input_shape[1], self.input_shape[0]], Image.NEAREST), dtype='uint8')
                 else:
                     # images/tututututut.jpg
                     img_path = os.path.join(img_dir, result['filename'])

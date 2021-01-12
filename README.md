@@ -14,7 +14,6 @@ just upload your datasets and you will get the result(kmodel and usage code)
 
 ### 0. Prepare
 
-* only support `Linux`
 * Prepare environment, use CPU or GPU to train
 At your fist time train, CPU is recommended, just
 ```
@@ -51,7 +50,21 @@ and you will see output in the `out` directory, packed as a zip file
 
 
 ```
-python3 train.py -t detector -z datasets/test_detector_xml_format.zip train
+python3 train.py -t detector -d data.json train
+```
+
+##### `data.json` example:
+
+```json
+{
+    "train": [
+        "G:/skiing/dataset/0",
+        "G:/skiing/dataset/1"
+    ],
+    "val": [
+        "G:/skiing/dataset/val"
+    ]
+}
 ```
 
 more command see`python3 train.py -h`
@@ -61,9 +74,37 @@ and you will see output in the `out` directory, packed as a zip file
 
 ## Use GPU
 
+### Linux
+
 Use docker or install tensorflow with GPU in your local environment
 
 Tensorflow's version should >= 2.0, tested on 2.1
+
+### Windows:
+
+If you encounter the following error message, please just ignore it as this project was only built for `Linux` before. 
+
+ ```
+no GPU, will use [CPU]
+2021-01-12 22:04:48.773378: I tensorflow/stream_executor/platform/default/dso_loader.cc:49] Successfully opened dynamic library cudart64_110.dll
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "C:\Users\<user>\AppData\Local\Programs\Python\Python38\lib\multiprocessing\spawn.py", line 109, in spawn_main
+    fd = msvcrt.open_osfhandle(new_handle, os.O_RDONLY)
+OSError: [Errno 9] Bad file descriptor
+ ```
+
+This repo can actually runs on Windows **with** GPU support now. The above error message will not affect your GPU training capability.
+
+###### Tested Windows Environment 
+
+- OS: Windows 10 Insider Preview Build 20279.1
+- GPU: GeForce RTX 3080
+- GPU Driver: Game Ready Driver 465.12
+- CUDA Toolkit: 11.0 and 11.2 side-by-side installation
+- cuDNN: 11.1
+- tensorflow: 2.4
+- 
 
 ### Use docker(recommend)
 
